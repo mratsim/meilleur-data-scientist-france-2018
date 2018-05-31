@@ -1,6 +1,6 @@
 # Meilleur Data Scientist de France 2018
 
-This is my code for the 2-hour competition "Meilleur Data Scientiste de France 2018" (Best data scientist of France 2018).
+This is my code for the 2-hour competition "Meilleur Data Scientist de France 2018" (Best data scientist of France 2018).
 
 https://www.meilleurdatascientistdefrance.com/
 
