@@ -1,0 +1,155 @@
+---
+title: "Tutoriel R - MDSF 2018"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+Ce tutoriel a pour but de guider les personnes souhaitant utiliser `R` pour participer au challenge.
+
+Il comporte cinq étapes :
+
+1. Import des donnees
+2. Analyse descriptive
+3. Preparation des donnees
+4. Creation d'un modele 
+5. Calcul des predictions et soumission
+
+# Import des données
+
+Avant de rentrer dans le vif du sujet, installons les packages necessaires pour ce tutoriel :
+```{r message=FALSE, warning=FALSE}
+if (require(readr) == F){install.packages("readr")} ; library(readr)
+if (require(dplyr) == F){install.packages("dplyr")} ; library(dplyr)
+if (require(MLmetrics) == F){install.packages("MLmetrics")} ; library(MLmetrics)
+if (require(randomForest) == F){install.packages("randomForest")} ; library(randomForest)
+```
+
+Le datasets sont sous format .csv. Vous pouvez les importer dans l'espace de travail R avec le code ci-dessous. Pensez à changer le chemin du dossier contenant les data.
+```{r message=FALSE, warning=TRUE}
+# Penser à remplacer par le bon chemin où sont les données sur votre poste.
+x_train <- read_csv("X_train.csv")
+y_train <- read_csv("y_train.csv")
+x_test  <- read_csv("X_test.csv")
+
+# Retire les lignes qui ont un probleme de parsing dans x_train
+if(length(problems(x_train)$row) > 0){
+ lignes_problematiques <- unique(problems(x_train)$row)
+ x_train <- x_train[-lignes_problematiques,] 
+}
+```
+
+On est maintenant prêt à attaquer les choses serieuses ! :-)
+
+
+## Structure des datasets
+
+Le dataset `x_train` décrit les caracteristiques de 8779 objets vendus sur le site Emmaus. Le dataset `y_train` décrit le délai de vente de ces mêmes objets. Ce sont ces datasets que nous allons utiliser pour créer un modele. Chaque objet est decrit par une observation de 30 variables hors index. Ces variables sont décrites dans le fichier de description présent dans la clé usb.
+
+Le dataset `test` comporte les caracteristiques des 2927 objets dont il faut predire le delai de vente. A la difference du train, le délai de vente n'est bien sur pas renseigné et une colonne id a ete rajouté pour identifier les prédictions pendant l'étape de soumission. 
+
+## Distribution des donnees
+
+Jetons maintenant un coup d'oeil à la distribution des donn2es
+
+```{r}
+prop.table(table(y_train$delai_vente))
+```
+Le jeu de données est très équilibrée, chacune des 3 classes a une fréquence proche d'1/3.
+
+# Préparation des données
+
+Pour faciliter la préparation de données, il est conseillé de concatener les datasets `train` et `test` pour n'avoir à modifier qu'un dataset, quitte à les separer de nouveau par la suite.
+
+```{r message=FALSE, warning=FALSE}
+# Cree une variable partition pour pouvoir separer les datasets apres la preparation des donnees
+train <- inner_join(x_train, y_train, by ='id')
+train$partition <- 'train' 
+x_test$partition <- 'test'
+
+full <- bind_rows(train, x_test) # Combine train et test pour avoir un seul dataset à manipuler
+```
+
+## Imputation des valeurs manquantes
+```{r}
+# Impute les valeurs manquantes par une valeur arbitraire (-999) pour les variables poids, largeurs et longueurs d'images.
+full$poids[is.na(full$poids)] <- -999
+full$largeur_image[is.na(full$largeur_image)] <- -999
+full$longueur_image[is.na(full$longueur_image)] <- -999
+
+#Impute les valeurs manquantes de la variable catégorie par la modalité la plus fréquente).
+full$categorie[is.na(full$categorie)] <- 'mode'
+
+#Change le type de la variable "categorie" en factor.
+full$categorie <- factor(full$categorie)  
+```
+
+
+## Split train / test
+Nous avons plus haut fusionné `train` et `test` dans `full` pour gagner du temps lors de la création de variables (un seul dataset à modifier).
+
+On peut maintenant les séparer de nouveau en utilisant la variable `partition`.
+
+```{r}
+train <- full[full$partition == 'train',]
+test  <- full[full$partition == 'test',]
+```
+
+# Création d'un premier modèle
+
+Il est maintenant temps de creer un premier modèle. Dans ce tutoriel nous allons construire une [Forêt Aléatoire](https://fr.wikipedia.org/wiki/For%C3%AAt_d%27arbres_d%C3%A9cisionnels).
+
+Pour ce faire nous utilisons six variables : categorie, poids, prix, nb_images, largeur_image et longueur_image
+
+Pour éviter le surapprentissage et estimer de manière fiable les performances de notre modèle nous allons utiliser le critère de [validation croisée](https://fr.wikipedia.org/wiki/Validation_crois%C3%A9e), methode k-fold.
+
+Pour ce faire nous allons découper l'échantillon de train en 5. A chaque itération 4 fold sur 5 (80% du train) serviront à entrainer les modèles, le cinquieme fold (20% du train) sera utilisé pour valider les performances.
+
+```{r}
+K <- 5 # on partitionne l'echantillon de train en 5
+set.seed(123) # 
+train$cv_id <- sample(1:K, nrow(train), replace = TRUE)
+
+logloss_vector <- c()
+
+for(i in 1:K){
+  train_cv <- train[train$cv_id != i, ]
+  test_cv  <- train[train$cv_id == i, ]
+  
+  rf <- randomForest(data = train_cv,
+                  as.factor(delai_vente) ~ categorie + poids + prix + nb_images + largeur_image + longueur_image, ntree = 10)
+  
+  pred <- predict(rf, test_cv, type = "prob")
+  logloss <- MultiLogLoss(y_true = test_cv$delai_vente, 
+                         y_pred = pred)
+
+  
+  print(logloss)
+  logloss_vector <- append(logloss_vector, logloss)
+  
+}
+print(paste0('Moyenne score CV : ', mean(logloss_vector)))
+```
+
+Avec ces 5 variables et un nombre d'arbre `ntree`= 10 la logloss en CV est d'environ 3. 
+
+# Calcul des prédictions et soumission
+Maintenant que nous avons créé un modele predictif, il est temps de predire les délais de ventes des objets de l'echantillon de test :
+```{r}
+delai_test <- predict(rf, test, type = "prob") # Predit les délais de ventes des objets de l'echantillon de test
+soumission <- data.frame(id = test$id , delai_test) # Cree un data.frame au bon format pour la soumission
+write.table(soumission, file= 'my_prediction.csv', sep= ',', row.names = F) # Sauvegarde la soumission
+```
+
+Vous êtes maintenant prêt à faire votre premiere soumission en uploadant le fichier soumission.csv sur https://qscore.meilleurdatascientistdefrance.com/
+
+## Aller plus loin
+
+Vous pouvez maintenant essayer d'améliorer ce premier modèle. Pour vous y aider plusieurs indices seront dévoilés au micro pendant le challenge.
+
+**Rappel :** vous n'avez le droit qu'à 5 soumissions sur la plateforme, utiliser donc la validation croisée pour évaluer vos expérimentations pour ne soumettre que les plus prometteuses.
+
+**Conseil :** une fois que vous avez identifié un modèle comme prometteur selon son score de validation croisée, réentrainait le sur l'intégralité (100%) de la partition de `train`.
+
+Bonne chance pour le challenge et que le meilleuR gagne ! :-)
