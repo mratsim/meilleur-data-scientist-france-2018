@@ -17,10 +17,14 @@ Label Emmaüs is their marketplace which is hiring among the most vulnerable peo
 
 ## Difficulties
 
-### 1. 2 hours is extremely short, I struggled one hour to get a baseline up.
+### 1. 2 hours is extremely short
+
+I struggled one hour to get a baseline up.
 
 Then I lost again 30 minutes because we had to output 3 probabilities
 (selling between 0-10 days, 10-60 days and 60+ days) but XGBoost wasn't ordering the output columns
 in a natural order.
 
-### 2. The dataset was quite dirty to limit the use of automl/datascience platforms
+### 2. The dataset
+
+was quite dirty to limit the use of automl/datascience platforms
